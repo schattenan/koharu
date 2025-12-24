@@ -10,8 +10,15 @@ use skrifa::{
 use crate::font::{Font, font_key};
 use crate::shape::shape_segment_with_fallbacks;
 
+use crate::hyphenation::{
+    HyphenationLanguage as Language, WordHyphenator, find_longest_word, split_longest_word,
+};
+
 pub use crate::segment::{LineBreakOpportunity, LineBreaker};
 pub use crate::shape::{PositionedGlyph, ShapedRun, ShapingOptions, TextShaper};
+
+// Re-export Language from hyphenation for convenience
+pub use crate::hyphenation::HyphenationLanguage;
 
 /// Writing mode for text layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,6 +79,8 @@ pub struct TextLayout<'a> {
     font_size: Option<f32>,
     max_width: Option<f32>,
     max_height: Option<f32>,
+    auto_word_break: bool,
+    hyphenator: Option<WordHyphenator>,
 }
 
 impl<'a> TextLayout<'a> {
@@ -83,6 +92,8 @@ impl<'a> TextLayout<'a> {
             font_size,
             max_width: None,
             max_height: None,
+            auto_word_break: false,
+            hyphenator: None,
         }
     }
 
@@ -111,6 +122,36 @@ impl<'a> TextLayout<'a> {
         self
     }
 
+    pub fn with_auto_word_break(mut self, enabled: bool) -> Self {
+        self.auto_word_break = enabled;
+        self
+    }
+
+    /// Enables hyphenation for word breaking using the specified language.
+    ///
+    /// When hyphenation is enabled and `auto_word_break` is also enabled,
+    /// long words will be split at linguistically correct syllable boundaries
+    /// using the Knuth-Liang algorithm.
+    ///
+    /// # Example
+    /// ```ignore
+    /// use hyphenation::Language;
+    ///
+    /// let layout = TextLayout::new(&font, None)
+    ///     .with_auto_word_break(true)
+    ///     .with_hyphenation(Language::German1996);
+    /// ```
+    pub fn with_hyphenation(mut self, lang: Language) -> Self {
+        self.hyphenator = Some(WordHyphenator::new(lang));
+        self
+    }
+
+    /// Enables hyphenation with a pre-configured hyphenator.
+    pub fn with_hyphenator(mut self, hyphenator: WordHyphenator) -> Self {
+        self.hyphenator = Some(hyphenator);
+        self
+    }
+
     pub fn run(&self, text: &str) -> Result<LayoutRun<'a>> {
         if let Some(font_size) = self.font_size {
             return self.run_with_size(text, font_size);
@@ -123,6 +164,61 @@ impl<'a> TextLayout<'a> {
         let max_height = self.max_height.unwrap_or(f32::INFINITY);
         let max_width = self.max_width.unwrap_or(f32::INFINITY);
 
+        // If auto word break is disabled or no hyphenator is available, use simple binary search
+        if !self.auto_word_break || self.hyphenator.is_none() {
+            return self.binary_search_font_size(text, max_width, max_height);
+        }
+
+        // Bounded iterative approach with word breaking
+        const MAX_ITERATIONS: usize = 5;
+        const MIN_FILL_RATIO: f32 = 0.5;
+        const MIN_WORD_LEN: usize = 6;
+
+        let mut processed_text = text.to_string();
+        let box_area = max_width * max_height;
+        let hyphenator = self.hyphenator.as_ref().unwrap(); // Safe: checked above
+
+        for iteration in 0..=MAX_ITERATIONS {
+            // Step 1: Binary search for best font size
+            let layout = self.binary_search_font_size(&processed_text, max_width, max_height)?;
+
+            // Step 2: Check fill ratio (only if box has finite area)
+            let fill_ratio = if box_area.is_finite() && box_area > 0.0 {
+                (layout.width * layout.height) / box_area
+            } else {
+                1.0 // Assume full fill if box is infinite
+            };
+
+            // Step 3: If good fill or last iteration, return
+            if fill_ratio >= MIN_FILL_RATIO || iteration == MAX_ITERATIONS {
+                return Ok(layout);
+            }
+
+            // Step 4: Find longest word and check if splittable
+            let longest = find_longest_word(&processed_text);
+
+            if longest.chars().count() <= MIN_WORD_LEN {
+                return Ok(layout); // Can't split further
+            }
+
+            // Step 5: Split longest word and continue to next iteration
+            let new_text = split_longest_word(&processed_text, &longest, hyphenator);
+            if new_text == processed_text {
+                return Ok(layout); // Word couldn't be split, return current layout
+            }
+            processed_text = new_text;
+        }
+
+        // Fallback (should not reach here due to iteration == MAX_ITERATIONS check)
+        self.binary_search_font_size(&processed_text, max_width, max_height)
+    }
+
+    fn binary_search_font_size(
+        &self,
+        text: &str,
+        max_width: f32,
+        max_height: f32,
+    ) -> Result<LayoutRun<'a>> {
         let mut low = 6;
         let mut high = 300;
         let mut best: Option<LayoutRun<'a>> = None;

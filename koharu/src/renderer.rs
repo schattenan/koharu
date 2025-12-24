@@ -5,6 +5,7 @@ use icu::properties::{CodePointMapData, props::Script};
 use image::{DynamicImage, imageops};
 use koharu_renderer::{
     font::{FamilyName, Font, FontBook, Properties},
+    hyphenation::map_language_code,
     layout::{LayoutRun, TextLayout, WritingMode},
     renderer::{RenderOptions, TextShaderEffect, WgpuRenderer},
 };
@@ -118,12 +119,32 @@ impl Renderer {
             })
             .unwrap_or([0, 0, 0, 255]);
         let writing_mode = writing_mode(text_block);
-        let mut layout = TextLayout::new(&font, None)
+        let auto_word_break = text_block
+            .style
+            .as_ref()
+            .and_then(|s| s.auto_word_break)
+            .unwrap_or(false);
+        let hyphenation_lang_str = text_block
+            .style
+            .as_ref()
+            .and_then(|s| s.hyphenation_language.clone());
+        let hyphenation_lang = hyphenation_lang_str.as_deref().and_then(map_language_code);
+
+        let layout_builder = TextLayout::new(&font, None)
             .with_fallback_fonts(&self.symbol_fallbacks)
             .with_max_height(text_block.height)
             .with_max_width(text_block.width)
             .with_writing_mode(writing_mode)
-            .run(translation)?;
+            .with_auto_word_break(auto_word_break);
+
+        // Add hyphenation if auto_word_break is enabled and a language is set
+        let layout_builder = if auto_word_break && hyphenation_lang.is_some() {
+            layout_builder.with_hyphenation(hyphenation_lang.unwrap())
+        } else {
+            layout_builder
+        };
+
+        let mut layout = layout_builder.run(translation)?;
         if writing_mode == WritingMode::Horizontal && is_latin_only(translation) {
             center_layout_horizontally(&mut layout, text_block.width);
         }

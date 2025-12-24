@@ -19,11 +19,44 @@ export type FontPrediction = {
   named_fonts: NamedFontPrediction[]
 }
 
+export type HyphenationLanguage =
+  | 'de'
+  | 'en-us'
+  | 'en-gb'
+  | 'fr'
+  | 'es'
+  | 'it'
+  | 'pt'
+  | 'nl'
+  | 'pl'
+  | 'ru'
+  | 'sv'
+  | 'da'
+  | 'fi'
+  | 'cs'
+  | 'hu'
+  | 'tr'
+  | 'el'
+  | 'uk'
+  | 'hr'
+  | 'ro'
+  | 'sk'
+  | 'sl'
+  | 'bg'
+  | 'ca'
+  | 'et'
+  | 'lv'
+  | 'lt'
+  | 'id'
+  | 'la'
+
 export type TextStyle = {
   fontFamilies: string[]
   fontSize?: number
   color: RgbaColor
   effect?: RenderEffect
+  autoWordBreak?: boolean
+  hyphenationLanguage?: HyphenationLanguage
 }
 
 export type TextBlock = {

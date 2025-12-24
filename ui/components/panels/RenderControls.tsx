@@ -6,7 +6,13 @@ import { ToggleField, TooltipButton } from '@/components/ui/form-controls'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/lib/store'
 import { useTextBlocks } from '@/hooks/useTextBlocks'
-import { RenderEffect, RgbaColor, TextStyle } from '@/types'
+import { hyphenationLanguages } from '@/lib/hyphenation'
+import {
+  HyphenationLanguage,
+  RenderEffect,
+  RgbaColor,
+  TextStyle,
+} from '@/types'
 
 const DEFAULT_COLOR: RgbaColor = [0, 0, 0, 255]
 const DEFAULT_FONT_FAMILIES = ['Arial']
@@ -53,6 +59,8 @@ export function RenderControls() {
     render,
     renderEffect,
     setRenderEffect,
+    defaultTextStyle,
+    setDefaultTextStyle,
     updateTextBlocks,
     availableFonts,
     fetchAvailableFonts,
@@ -63,27 +71,27 @@ export function RenderControls() {
     selectedBlockIndex !== undefined
       ? textBlocks[selectedBlockIndex]
       : undefined
-  const firstBlock = textBlocks[0]
   const hasBlocks = textBlocks.length > 0
-  const fallbackFontFamilies =
-    availableFonts.length > 0 ? [availableFonts[0]] : DEFAULT_FONT_FAMILIES
-  const fallbackColor = firstBlock?.style?.color ?? DEFAULT_COLOR
+  // Use defaultTextStyle as the fallback for global settings
+  const fallbackFontFamilies = defaultTextStyle.fontFamilies
+  const fallbackColor = defaultTextStyle.color
   const fontCandidates =
     availableFonts.length > 0
       ? availableFonts
       : [
           ...(selectedBlock?.style?.fontFamilies?.slice(0, 1) ?? []),
-          ...DEFAULT_FONT_FAMILIES,
+          ...defaultTextStyle.fontFamilies,
         ]
   const fontOptions = uniqueStrings(fontCandidates)
+  // When a block is selected, show its style; otherwise show the global default
   const currentFont =
-    selectedBlock?.style?.fontFamilies?.[0] ??
-    firstBlock?.style?.fontFamilies?.[0] ??
-    (hasBlocks ? fallbackFontFamilies[0] : '')
+    selectedBlock?.style?.fontFamilies?.[0] ?? defaultTextStyle.fontFamilies[0]
   const currentEffect = selectedBlock?.style?.effect ?? renderEffect
-  const currentColor =
-    selectedBlock?.style?.color ?? (hasBlocks ? fallbackColor : DEFAULT_COLOR)
+  const currentColor = selectedBlock?.style?.color ?? defaultTextStyle.color
   const currentColorHex = colorToHex(currentColor)
+  const currentHyphenationLanguage =
+    selectedBlock?.style?.hyphenationLanguage ??
+    defaultTextStyle.hyphenationLanguage
 
   useEffect(() => {
     if (availableFonts.length === 0) {
@@ -108,6 +116,9 @@ export function RenderControls() {
     fontSize: updates.fontSize ?? style?.fontSize,
     color: updates.color ?? style?.color ?? fallbackColor,
     effect: updates.effect ?? style?.effect,
+    autoWordBreak: updates.autoWordBreak ?? style?.autoWordBreak,
+    hyphenationLanguage:
+      updates.hyphenationLanguage ?? style?.hyphenationLanguage,
   })
 
   const applyStyleToSelected = (updates: Partial<TextStyle>) => {
@@ -118,6 +129,18 @@ export function RenderControls() {
   }
 
   const applyStyleToAll = (updates: Partial<TextStyle>) => {
+    // Always update the global default style
+    const defaultUpdates: Partial<typeof defaultTextStyle> = {}
+    if (updates.fontFamilies !== undefined)
+      defaultUpdates.fontFamilies = updates.fontFamilies
+    if (updates.color !== undefined) defaultUpdates.color = updates.color
+    if (updates.hyphenationLanguage !== undefined)
+      defaultUpdates.hyphenationLanguage = updates.hyphenationLanguage
+    if (Object.keys(defaultUpdates).length > 0) {
+      setDefaultTextStyle(defaultUpdates)
+    }
+
+    // Apply to all blocks if there are any
     if (!hasBlocks) return
     const nextBlocks = textBlocks.map((block) => ({
       ...block,
@@ -162,6 +185,13 @@ export function RenderControls() {
               selectedBlock?.style?.fontFamilies,
             )
             if (applyStyleToSelected({ fontFamilies: nextFamilies })) return
+            // Update global default font
+            setDefaultTextStyle({
+              fontFamilies: [
+                value,
+                ...defaultTextStyle.fontFamilies.filter((f) => f !== value),
+              ],
+            })
             if (!hasBlocks) return
             const nextBlocks = textBlocks.map((block) => ({
               ...block,
@@ -174,7 +204,7 @@ export function RenderControls() {
             }))
             void updateTextBlocks(nextBlocks)
           }}
-          disabled={!hasBlocks || fontOptions.length === 0}
+          disabled={fontOptions.length === 0}
         >
           <Select.Trigger
             className='inline-flex w-full items-center justify-between gap-2 rounded border border-neutral-200 bg-white px-2 py-1 text-sm hover:bg-neutral-50'
@@ -257,6 +287,65 @@ export function RenderControls() {
             {currentColorHex.toUpperCase()}
           </span>
         </div>
+      </div>
+      <div className='space-y-1'>
+        <div className='flex items-center justify-between gap-2'>
+          <span className='text-[11px] font-semibold tracking-wide text-neutral-500 uppercase'>
+            {t('render.hyphenationLabel', 'Word Splitting')}
+          </span>
+          <span className='rounded border border-neutral-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-neutral-500'>
+            {selectedBlockIndex !== undefined
+              ? t('render.fontScopeBlockIndex', {
+                  index: selectedBlockIndex + 1,
+                })
+              : t('render.fontScopeGlobal')}
+          </span>
+        </div>
+        <Select.Root
+          value={currentHyphenationLanguage ?? 'none'}
+          onValueChange={(value) => {
+            const nextLang =
+              value === 'none' ? undefined : (value as HyphenationLanguage)
+            // Also set autoWordBreak based on whether hyphenation is enabled
+            const enableWordBreak = value !== 'none'
+            if (
+              applyStyleToSelected({
+                hyphenationLanguage: nextLang,
+                autoWordBreak: enableWordBreak,
+              })
+            )
+              return
+            applyStyleToAll({
+              hyphenationLanguage: nextLang,
+              autoWordBreak: enableWordBreak,
+            })
+          }}
+          disabled={!hasBlocks}
+        >
+          <Select.Trigger className='inline-flex w-full items-center justify-between gap-2 rounded border border-neutral-200 bg-white px-2 py-1 text-sm hover:bg-neutral-50'>
+            <Select.Value
+              placeholder={t(
+                'render.hyphenationPlaceholder',
+                'Select language',
+              )}
+            />
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content className='max-h-64 min-w-56 overflow-y-auto rounded-md bg-white p-1 shadow-sm'>
+              <Select.Viewport>
+                {hyphenationLanguages.map((lang) => (
+                  <Select.Item
+                    key={lang.value}
+                    value={lang.value}
+                    className='rounded px-3 py-1.5 text-sm outline-none select-none hover:bg-black/5 data-[state=checked]:bg-black/5'
+                  >
+                    <Select.ItemText>{t(lang.labelKey)}</Select.ItemText>
+                  </Select.Item>
+                ))}
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
       </div>
       <div className='col flex'>
         <TooltipButton

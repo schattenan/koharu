@@ -34,6 +34,11 @@ pub struct TextStyle {
     pub font_size: Option<f32>,
     pub color: [u8; 4],
     pub effect: Option<TextShaderEffect>,
+    /// Enable automatic word breaking for long words.
+    pub auto_word_break: Option<bool>,
+    /// Language code for hyphenation (e.g., "de", "en-us", "fr").
+    /// Only used when auto_word_break is enabled.
+    pub hyphenation_language: Option<String>,
 }
 
 impl Default for TextStyle {
@@ -57,6 +62,8 @@ impl Default for TextStyle {
             font_size: None,
             color: [0, 0, 0, 255],
             effect: None,
+            auto_word_break: None,
+            hyphenation_language: None,
         }
     }
 }

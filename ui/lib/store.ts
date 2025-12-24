@@ -6,7 +6,9 @@ import {
   Document,
   InpaintRegion,
   RenderEffect,
+  RgbaColor,
   TextBlock,
+  TextStyle,
   ToolMode,
 } from '@/types'
 import { createOperationSlice, type OperationSlice } from '@/lib/operations'
@@ -132,6 +134,21 @@ const maskSyncer = createMaskSyncer()
 const findModelLanguages = (models: LlmModelInfo[], modelId?: string) =>
   models.find((model) => model.id === modelId)?.languages ?? []
 
+// Default text style that persists across image switches
+type DefaultTextStyle = {
+  fontFamilies: string[]
+  color: RgbaColor
+  strokeEnabled: boolean
+  hyphenationLanguage?: TextStyle['hyphenationLanguage']
+}
+
+const DEFAULT_TEXT_STYLE: DefaultTextStyle = {
+  fontFamilies: ['Arial'],
+  color: [0, 0, 0, 255],
+  strokeEnabled: false,
+  hyphenationLanguage: undefined,
+}
+
 const pickLanguage = (
   models: LlmModelInfo[],
   modelId?: string,
@@ -159,6 +176,7 @@ type AppState = OperationSlice & {
   selectedBlockIndex?: number
   autoFitEnabled: boolean
   renderEffect: RenderEffect
+  defaultTextStyle: DefaultTextStyle
   availableFonts: string[]
   // LLM state
   llmModels: LlmModelInfo[]
@@ -186,6 +204,7 @@ type AppState = OperationSlice & {
   setSelectedBlockIndex: (index?: number) => void
   setAutoFitEnabled: (enabled: boolean) => void
   setRenderEffect: (effect: RenderEffect) => void
+  setDefaultTextStyle: (style: Partial<DefaultTextStyle>) => void
   fetchAvailableFonts: () => Promise<void>
   updateTextBlocks: (textBlocks: TextBlock[]) => Promise<void>
   updateMask: (
@@ -314,6 +333,7 @@ export const useAppStore = create<AppState>((set, get) => {
     selectedBlockIndex: undefined,
     autoFitEnabled: true,
     renderEffect: 'normal',
+    defaultTextStyle: { ...DEFAULT_TEXT_STYLE },
     availableFonts: [],
     llmModels: [],
     llmSelectedModel: undefined,
@@ -409,6 +429,10 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ selectedBlockIndex: index }),
     setAutoFitEnabled: (enabled: boolean) => set({ autoFitEnabled: enabled }),
     setRenderEffect: (effect: RenderEffect) => set({ renderEffect: effect }),
+    setDefaultTextStyle: (style: Partial<DefaultTextStyle>) =>
+      set((state) => ({
+        defaultTextStyle: { ...state.defaultTextStyle, ...style },
+      })),
     fetchAvailableFonts: async () => {
       try {
         const fonts = await invoke<string[]>('list_font_families')

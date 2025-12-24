@@ -26,6 +26,7 @@ wgpu = { workspace = true }
 etagere = { workspace = true }
 bytemuck = { workspace = true }
 tracing = { workspace = true }
+hyphenation = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
